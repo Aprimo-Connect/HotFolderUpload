@@ -11,7 +11,7 @@ Prior to running the script, it needs to be configured. To that end, edit the *a
 | Name | Description |
 | ---: | --- |
 | endpointUri | The uri to your MO/ADAM installation, e.g. *https://mycompanyname.aprimo.com* |
-| uploadserviceUri | The endpoint uri to the upload service, e.g. *https://upload.aprimo.com* |
+| uploadserviceUri | The endpoint uri to the upload service, e.g. *https://mycompanyname.aprimo.com/uploads* |
 | clientId | The client-id, as created in Marketing Operations |
 | authorization | The Base-64 Encoded Authorization Code, make sure to include the prefix, e.g. *Basic [Base64 encoded string]* |
 | logDir | The directory where the log files are written |
