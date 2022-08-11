@@ -12,7 +12,7 @@ $script:token = @{ accessToken = ""; refreshToken = "" }
 function GetHumanReadableFileSize ([long] $fileSize) {
     $stringBuilder = New-Object System.Text.StringBuilder 1024
 
-    [Aprimo.HotfolderService2.Win32]::FormatByteSize($fileSize, $stringBuilder) | Out-Null
+    [Aprimo.HotfolderService.Win32]::FormatByteSize($fileSize, $stringBuilder) | Out-Null
     return $stringBuilder.ToString()
 }
 
@@ -546,7 +546,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Aprimo.HotfolderService2 {
+namespace Aprimo.HotfolderService {
     public static class Win32 
     {
         public static long FormatByteSize(long fileSize, StringBuilder buffer)
