@@ -12,7 +12,7 @@ $script:token = @{ accessToken = ""; refreshToken = "" }
 function GetHumanReadableFileSize ([long] $fileSize) {
     $stringBuilder = New-Object System.Text.StringBuilder 1024
 
-    [Aprimo.HotfolderService.Win32]::FormatByteSize($fileSize, $stringBuilder) | Out-Null
+    [Aprimo.HotfolderService2.Win32]::FormatByteSize($fileSize, $stringBuilder) | Out-Null
     return $stringBuilder.ToString()
 }
 
@@ -107,7 +107,7 @@ function InvokeRestMethod([string]$uri, [ValidateSet("POST", "GET", "DELETE", "P
                     if ($token -ne $null) {
                         Write-DebugLog "Updated access token: $token"
 
-                        $script:accessToken = $token
+                        $script:token.accessToken = $token
                         $arguments["Headers"]["Authorization"] = "Bearer $token"
                         $refreshToken = $false
 
@@ -119,7 +119,7 @@ function InvokeRestMethod([string]$uri, [ValidateSet("POST", "GET", "DELETE", "P
                     if ($token -ne $null) {
                         Write-DebugLog "Updated auth token: $token"
 
-                        $script:accessToken = $token
+                        $script:token.accessToken = $token
                         $arguments["Headers"]["Authorization"] = "Token $token"
                         $refreshToken = $false
 
@@ -341,7 +341,7 @@ function UploadFile([string]$path) {
             Write-Progress -Id 2 -ParentId 1 -Activity "Uploading $filename ($humanReadableFilesSize)" -PercentComplete 0
 
             $data = ReadFile -fileStream $fileStream -offset 0 -count $fileSize
-            $result = (UploadData -uri (CreateUploadUri -endpoint "") -name "file1" -filename $filename -mimeType $mimeType -data ($enc.GetString($data)) | ParseUploadResult)
+            $result = (UploadData -uri (CreateUploadUri -endpoint "/uploads") -name "file1" -filename $filename -mimeType $mimeType -data ($enc.GetString($data)) | ParseUploadResult)
 
             Write-Progress -Id 2 -ParentId 1 -Activity "Uploading $filename ($humanReadableFilesSize)" -PercentComplete 100
 
@@ -351,7 +351,7 @@ function UploadFile([string]$path) {
             $headers = CreateHeaders -kind "DAM"
 
             $json = BuildJson -filename $filename
-            $response = InvokeRestMethod -uri (CreateUploadUri -endpoint "/segments") -method "POST" -headers $headers -body $json
+            $response = InvokeRestMethod -uri (CreateUploadUri -endpoint "/uploads/segments") -method "POST" -headers $headers -body $json
 
             $uri = $response.uri
             [long]$segment = 0
@@ -398,9 +398,17 @@ function UploadFile([string]$path) {
 function CreateUploadUri([string]$endpoint) {
     $config = GetConfig
 
-    return CombineUrlSegments $config["uploadserviceUri"], $endpoint
-}
+    if ($config.ContainsKey("uploadserviceUri") -and $config["uploadserviceUri"]) {
+        Write-DebugLog "Using the upload servie to handle a file"
 
+        return CombineUrlSegments $config["uploadserviceUri"], $endpoint
+    }
+    else {
+        Write-DebugLog "Using the REST api to handle a file"
+
+        return CreateUrl -endpoint $endpoint -kind "DAM"
+    }
+}
 function UploadMetadataFile([string]$path, [hashtable]$metadataFileTable){
 
     Write-InfoLog "Start upload metadata file '$path'"
@@ -538,7 +546,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Aprimo.HotfolderService {
+namespace Aprimo.HotfolderService2 {
     public static class Win32 
     {
         public static long FormatByteSize(long fileSize, StringBuilder buffer)
@@ -796,7 +804,7 @@ function New-Record {
     catch {        
         # error during create new record, clean up the uploaded file
         Write-DebugLog "Deleting the uploaded file: $filename"
-        $response = DeleteUploadedFile -uri (CreateUploadUri -endpoint "/$uploadToken")
+        $response = DeleteUploadedFile -uri (CreateUploadUri -endpoint "/uploads/$uploadToken")
         throw
     }
 }
