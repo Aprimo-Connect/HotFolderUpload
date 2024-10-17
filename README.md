@@ -7,3 +7,9 @@ This Powershell script to upload files from Powershell into Aprimo is an open so
 For the upload, the script will use the MO REST API (for authentication) and the Aprimo DAM REST API.
 
 Transfers occur over HTTP and will be limited by the upload bandwidth you have available. If you have questions, please see the additional documentation at [the Aprimo developers site](https://developers.aprimo.com/digital-asset-management/powershell-script-file-uploads/)
+
+# Open Source Policy
+
+For more information about Aprimo's Open Source Policies, please refer to
+https://community.aprimo.com/knowledgecenter/aprimo-connect/aprimo-connect-open-source
+
