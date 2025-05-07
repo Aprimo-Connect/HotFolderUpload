@@ -1,8 +1,15 @@
 # PowerShell Script for Uploading Files to Aprimo DAM
 
-## Aprimo's Open Source Policy 
-This code is provided by Aprimo as-is to serve as an example of how you might solve a particular business problem. It is not intended to be deployed directly into Production. You may submit issues with the code, however, Aprimo may not provide fixes. It is expected that the consumer of this code will take on responsibility to support any deployments or executions of this code. If you would like Aprimo to provide a packaged solution for what this code provides, please reach out to your account contact, who can connect you with our technical services team or another partner that might be able to create a production-ready and production supported solution for you. This code may call out to other non-Aprimo services, and you may need your own API keys or access to those services as well, which Aprimo does not provide.
+### Aprimo's Open Source Policy 
+This code is provided by Aprimo _as-is_ as an example of how you might solve a specific business problem. It is not intended for direct use in Production without modification.
 
+You are welcome to submit issues or feedback to help us improve visibility into potential bugs or enhancements. Aprimo may, at its discretion, address minor bugs, but does not guarantee fixes or ongoing support.
+
+It is expected that developers who clone or use this code take full responsibility for supporting, maintaining, and securing any deployments derived from it.
+
+If you are interested in a production-ready and supported version of this solution, please contact your Aprimo account representative. They can connect you with our technical services team or a partner who may be able to build and support a packaged implementation for you.
+
+Please note: This code may include references to non-Aprimo services or APIs. You are responsible for acquiring any required credentials or API keys to use those services—Aprimo does not provide them.
 ## Overview
 This PowerShell script is an open-source example for uploading files to Aprimo DAM. It is not part of Aprimo's official product or support, and you can modify it to fit your use case. The script runs on a local server and uses the **REST API** for authentication and uploads. Transfers occur over HTTP and are limited by your available upload bandwidth. For large uploads (>10GB), contact your Aprimo representative.
 
