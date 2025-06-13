@@ -60,7 +60,7 @@ process {
     if(($PSBoundParameters.ContainsKey('MetaDataFile') -and -not($PSBoundParameters.ContainsKey('MetaDataSchemaName')))){
         Write-InfoLog "When uploading a metadata file both parameters MetaDataFile and MetaDataSchemaName are required."
         return
-    } 
+    }
 
     [hashtable]$entries = Get-FileList -Path $Path -FailedFilesFolder $FailedFilesFolder
 
@@ -95,7 +95,7 @@ process {
         if ($ClassifySubFolders) {
             $subClassifications = $subFoldersStr.Split('\\', [System.StringSplitOptions]::RemoveEmptyEntries)
         }
-        
+
         if (-not (Test-Path -LiteralPath $entry.Key)) {
             continue
         }
@@ -107,10 +107,10 @@ process {
 
         $isFileLocked = $false
         try {
-            
+
             $oFile = New-Object System.IO.FileInfo $entry.Key
             $oStream = $oFile.Open([System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
-                    
+
             if ($oStream) {
                 $oStream.Close()
             }
@@ -133,10 +133,10 @@ process {
         [System.Diagnostics.Stopwatch]$sw = [System.Diagnostics.Stopwatch]::StartNew()
 
         try {
-            
+
             $metadataTokenToUse = ""
             $metadataFileToUse = ""
-            
+
             # When metadata file is passed as param this is always leading
             if($MetaDataFile){
                 $metadataFileToUse = $MetaDataFile
@@ -147,10 +147,10 @@ process {
                 # Do not use the attached metadata file when a global metadata file is used.
                 if($MetaDataFile){
                     Write-WarningLog "Skip metadata file '$($entry.Key)'. Another metadata file is passed to the commandline"
-                    
+
                     # can be (re)moved already by a previous file
                     if(Test-Path($entry.Value)){
-                        
+
                         AddToFailedFolder -Path $entry.Value -FailedFilesFolder $FailedFilesFolder -SubFolders $subFoldersStr
                     }
                 }
@@ -165,7 +165,7 @@ process {
                     $metadataFileToUse = $entry.Value
                     $metadataTokenToUse = $metaDataFileUploadTokens.Item($entry.Value)
                 }
-                
+
             }
             $message = "Start upload file: $filePath."
             if($metadataFileToUse -and $MetaDataSchemaName){
@@ -185,7 +185,7 @@ process {
             Write-ErrorLog "An error occurred while creating a new record for $($entry.Key)`n`n $errorMsg"
 
             AddToFailedFolder -Path $entry.Key -FailedFilesFolder $FailedFilesFolder -SubFolders $subFoldersStr
-            
+
             $totalFailed++
         }
 
@@ -204,12 +204,12 @@ process {
         Write-InfoLog ("Cleaning uploaded metadata files")
         foreach ($uploadedFile in $metaDataFileUploadTokens.GetEnumerator()){
 
-            $token = [string]$uploadedFile.Value            
-            $response = DeleteUploadedFile -uri (CreateUploadUri -endpoint "/uploads/$token")
+            $token = [string]$uploadedFile.Value
+            $response = DeleteUploadedFile -uri (CreateUrl -endpoint "/$token" -Kind "Upload")
         }
     }
-    
-    
+
+
     Write-InfoLog "Total created records $totalSuccess"
     Write-InfoLog "Total failed uploads $totalFailed"
 }

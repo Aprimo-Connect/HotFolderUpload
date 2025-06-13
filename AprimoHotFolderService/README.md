@@ -12,12 +12,12 @@ Prior to running the script, it needs to be configured. To that end, edit the *a
 | ---: | --- |
 | endpointUri | The uri to your MO/ADAM installation, e.g. *https://mycompanyname.aprimo.com* |
 | uploadserviceUri | The endpoint uri to the upload service, e.g. *https://mycompanyname.aprimo.com/uploads* |
-| clientId | The client-id, as created in Marketing Operations |
-| authorization | The Base-64 Encoded Authorization Code, make sure to include the prefix, e.g. *Basic [Base64 encoded string]* |
+| clientId | The Client ID of an Aprimo integration client using the Client Credentials OAuth flow |
+| clientSecret | The Client Secret of an Aprimo integration client using the Client Credentials OAuth flow |
 | logDir | The directory where the log files are written |
 | logLevel | The log level, valid values are *None*, *Error*, *Warn*, *Info*, *Debug* |
 
-For information on how to create a client-id and authorization code see [the Authorization section](https://developers.aprimo.com/marketing-operations/rest-api/authorization/#module3) of the Marketing Operations REST API [documentation](https://developers.aprimo.com/marketing-operations/rest-api/).
+For information on how to create a Client ID and Client Secret, see the [Authorization documentation](https://developers.aprimo.com/docs/OAuth2).
 
 ## Executing the script
 ```ps

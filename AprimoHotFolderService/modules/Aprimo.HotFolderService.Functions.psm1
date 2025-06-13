@@ -3,11 +3,11 @@
 $script:appSettings = $null
 $script:version = "1.0.20720.10724"
 $script:userAgent = $null
-$script:token = @{ accessToken = ""; refreshToken = "" }
+$script:token = ""
 
 [long] $threshold = 20 * 1024 * 1024
 
-#region Support methods 
+#region Support methods
 
 function GetHumanReadableFileSize ([long] $fileSize) {
     $stringBuilder = New-Object System.Text.StringBuilder 1024
@@ -22,7 +22,7 @@ function GetProxyUri([string]$uri) {
         Write-DebugLog "No proxy found"
         return $null
     }
-    
+
     if ($proxy.IsBypassed($uri)) {
         Write-DebugLog "Proxy is bypassed for $uri"
         return $null
@@ -92,9 +92,8 @@ function InvokeRestMethod([string]$uri, [ValidateSet("POST", "GET", "DELETE", "P
         $currentProgressPreference = $ProgressPreference
 
         try {
-
-            $ProgressPreference = "SilentlyContinue"            
-            return Invoke-WebRequest @arguments | ConvertFrom-Json            
+            $ProgressPreference = "SilentlyContinue"
+            return Invoke-WebRequest @arguments | ConvertFrom-Json
         }
         catch {
             if (-not $_.Exception.Response) {
@@ -102,7 +101,7 @@ function InvokeRestMethod([string]$uri, [ValidateSet("POST", "GET", "DELETE", "P
             }
             else {
                 if ($refreshToken -and $_.Exception.Response.StatusCode.value__ -eq 401) {
-                    $token = RefreshBearerToken
+                    $token = Initialize-Session
 
                     if ($token -ne $null) {
                         Write-DebugLog "Updated access token: $token"
@@ -113,22 +112,10 @@ function InvokeRestMethod([string]$uri, [ValidateSet("POST", "GET", "DELETE", "P
 
                         continue
                     }
-                    
-                    $token = RefreshAuthToken
-                    
-                    if ($token -ne $null) {
-                        Write-DebugLog "Updated auth token: $token"
-
-                        $script:accessToken = $token
-                        $arguments["Headers"]["Authorization"] = "Token $token"
-                        $refreshToken = $false
-
-                        continue
-                    }
                 }
-                
+
                 Write-ErrorLog "An error occurred while making the request:`n`n$($_.Exception.Response.StatusDescription) (Status code: $($_.Exception.Response.StatusCode.value__))"
-            }        
+            }
 
             throw
         }
@@ -137,47 +124,6 @@ function InvokeRestMethod([string]$uri, [ValidateSet("POST", "GET", "DELETE", "P
         }
     }
     while ($true)
-}
-
-function RefreshBearerToken() {
-    $token = GetToken
-
-    if (-not $token.bearerToken) {
-        return $null
-    }
-
-    if (-not $token.refreshToken) {
-        return $null
-    }
-
-    Write-DebugLog "Refreshing the bearer token"
-
-    $uri = CreateUrl -endpoint "/token" -kind "MO"
-    $headers = CreateHeaders -kind "MO"
-    $body = (@{ "refreshToken" = $token.refreshToken }) | ConvertTo-Json -Compress
-
-    $response = InvokeRestMethod -uri $uri -method "POST" -headers $headers -body $body -refreshToken $false
-
-    return $response
-}
-
-function RefreshAuthToken(){
-    $token = GetToken
-
-    if ($token.bearerToken) {
-        return $null
-    }
-
-    Write-DebugLog "Refreshing the token token"
-
-    $config = GetConfig
-    
-    $uri = CreateUrl -endpoint "/auth" -kind "DAM"
-    $headers = CreateHeaders -kind "DAM" -additionalHeaders @{ "Authorization" = ($config.authorization); "Registration" = ($config.registration) }
-
-    $response = InvokeRestMethod -uri $uri -headers $headers -refreshToken $false
-
-    return $response.token;
 }
 
 function GetVersion {
@@ -190,7 +136,7 @@ function GetUserAgent {
     }
 
     $version = GetVersion
-    
+
     $psVersion = $PSVersionTable.PSVersion
     $productName = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name ProductName).ProductName
     $buildVersion = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuild).CurrentBuild
@@ -212,14 +158,28 @@ function GetConfig {
         $script:appSettings[$node.key] = $node.value
     }
 
+    ValidateConfig -config $script:appSettings
+
     return $script:appSettings
+}
+
+function ValidateConfig {
+    param ($config)
+
+    $requiredKeys = @("endpointUri", "uploadserviceUri", "clientId", "clientSecret")
+
+    foreach ($key in $requiredKeys) {
+        if (-not $config.ContainsKey($key) -or -not $config[$key]) {
+            throw "The '$key' setting is missing or empty in the configuration file."
+        }
+    }
 }
 
 function CombineUrlSegments([string[]]$parts) {
     return ($parts | Where-Object { $_ } | ForEach-Object { ([string]$_).Trim("/") } | Where-Object { $_ }) -join "/"
 }
 
-function CreateUrl([string]$endpoint, [ValidateSet("DAM", "MO", IgnoreCase = $true)][string]$kind) {
+function CreateUrl([string]$endpoint, [ValidateSet("DAM", "Upload", "Auth", IgnoreCase = $true)][string]$kind) {
     $config = GetConfig
 
     $url = $config.endpointUri
@@ -236,47 +196,57 @@ function CreateUrl([string]$endpoint, [ValidateSet("DAM", "MO", IgnoreCase = $tr
             return CombineUrlSegments $url, "api/core", $endpoint
         }
 
-        "MO" {
+        "Auth" {
             if ($url -match "dam\.(labs\.)?aprimo\.com\/?") {
-                return CombineUrlSegments ($url -replace "dam\.(labs\.)?aprimo\.com", "`$1aprimo.com"), "api", $endpoint
+                return CombineUrlSegments ($url -replace "dam\.(labs\.)?aprimo\.com", "`$1aprimo.com"), "login", $endpoint
             }
 
-            return CombineUrlSegments $url, "api", $endpoint
+            return CombineUrlSegments $url, "login", $endpoint
+        }
+
+        "Upload" {
+            $url = $config.uploadserviceUri
+            if (-not $url) {
+                throw "The 'uploadserviceUri' setting is missing or empty in the configuration file."
+            }
+
+            if ($url -match "dam\.(labs\.)?aprimo\.com\/?") {
+                return CombineUrlSegments ($url -replace "dam\.(labs\.)?aprimo\.com", "`$1aprimo.com"), "uploads", $endpoint
+            }
+
+            return CombineUrlSegments $url, "uploads", $endpoint
         }
     }
 }
 
-function CreateHeaders([Parameter(Mandatory = $true)][ValidateSet("MO", "DAM", IgnoreCase = $true)][string]$kind, [Parameter(Mandatory = $false)][Hashtable]$additionalHeaders = $null) {
+function CreateHeaders([Parameter(Mandatory = $true)][ValidateSet("DAM", "Upload", "Auth", IgnoreCase = $true)][string]$kind, [Parameter(Mandatory = $false)][Hashtable]$additionalHeaders = $null) {
     $headers = @{}
 
-    $config = GetConfig
-    $token = GetToken
-
     switch ($kind) {
-        "MO" {
-            $headers = @{
-                "client-id"     = $config.clientId
-                "Content-Type"  = "application/json; charset=utf-8"
-                "Authorization" = $config.authorization
-                "User-Agent"    = (GetUserAgent)
-            }
-        }
-
         "DAM" {
-            $prefix = "Bearer"
-            if (-not $token.bearerToken) {
-                $prefix = "Token"
-            }
-            
             $headers = @{
                 "API-Version"   = "1"
                 "Accept"        = "application/json"
                 "Content-Type"  = "application/json; charset=utf-8"
-                "Authorization" = "$prefix $($token.accessToken)"
-                "User-Agent"    = (GetUserAgent)
+                "Authorization" = "Bearer $(GetToken)"
+            }
+        }
+        "Upload" {
+            $headers = @{
+                "Accept"        = "application/json"
+                "Content-Type"  = "application/json; charset=utf-8"
+                "Authorization" = "Bearer $(GetToken)"
+            }
+        }
+        "Auth" {
+            $headers = @{
+                "Accept"        = "application/json"
+                "Content-Type"  = "application/x-www-form-urlencoded"
             }
         }
     }
+
+    $headers["User-Agent"] = (GetUserAgent)
 
     if ($additionalHeaders -ne $null) {
         foreach ($header in $additionalHeaders.Keys) {
@@ -310,8 +280,8 @@ function CompareEncodedFileNames ([string]$filename) {
 
     $isoBytes = $enc.Getbytes($filename)
     $utfBytes = $utfEnc.Getbytes($filename)
-    
-    $diff = Compare-Object -ReferenceObject $isoBytes -DifferenceObject $utfBytes -PassThru 
+
+    $diff = Compare-Object -ReferenceObject $isoBytes -DifferenceObject $utfBytes -PassThru
 
     return ($diff.length -gt 0)
 }
@@ -332,41 +302,41 @@ function UploadFile([string]$path) {
         # Since there are encoding issues with single file upload from powershell, we compare the file names here.
         # If the encoded byte arrays are the same then there are no special characters in the filename and all okay, otherwise we use segmented upload.
         # note: Segmented upload sends filename serpeately in "prepare" function to resolve this issue.
-        $segmented = CompareEncodedFileNames -filename $filename    
-    }    
-    $fileStream = OpenFile -path $path    
+        $segmented = CompareEncodedFileNames -filename $filename
+    }
+    $fileStream = OpenFile -path $path
 
     try {
         if (-not $segmented){
             Write-Progress -Id 2 -ParentId 1 -Activity "Uploading $filename ($humanReadableFilesSize)" -PercentComplete 0
 
             $data = ReadFile -fileStream $fileStream -offset 0 -count $fileSize
-            $result = (UploadData -uri (CreateUploadUri -endpoint "/uploads") -name "file1" -filename $filename -mimeType $mimeType -data ($enc.GetString($data)) | ParseUploadResult)
+            $result = (UploadData -uri (CreateUrl -endpoint "/" -kind "Upload") -name "file1" -filename $filename -mimeType $mimeType -data ($enc.GetString($data)) | ParseUploadResult)
 
             Write-Progress -Id 2 -ParentId 1 -Activity "Uploading $filename ($humanReadableFilesSize)" -PercentComplete 100
 
             return $result
         }
         else {
-            $headers = CreateHeaders -kind "DAM"
+            $headers = CreateHeaders -kind "Upload"
 
             $json = BuildJson -filename $filename
-            $response = InvokeRestMethod -uri (CreateUploadUri -endpoint "/uploads/segments") -method "POST" -headers $headers -body $json
+            $response = InvokeRestMethod -uri (CreateUrl -endpoint "/segments" -kind "Upload") -method "POST" -headers $headers -body $json
 
             $uri = $response.uri
             [long]$segment = 0
             [long]$offset = 0
             [long]$bytesLeft = $fileSize
- 
+
             try {
                 while ($bytesLeft -gt 0) {
                     Write-Progress -Id 2 -ParentId 1 -Activity "Uploading $filename ($humanReadableFilesSize)" -PercentComplete ((($fileSize - $bytesLeft) / $fileSize) * 100)
- 
+
                     [long]$count = [math]::Min($threshold, $bytesLeft)
- 
+
                     $data = ReadFile -fileStream $fileStream -offset $offset -count $count
                     UploadData -uri ($uri + "?index=$segment") -name "segment$segment" -filename "$filename.segment$segment" -mimeType $mimeType -data ($enc.GetString($data)) | Out-Null
-                                    
+
                     $bytesLeft -= $count
                     $offset += $count
                     $segment++
@@ -395,20 +365,6 @@ function UploadFile([string]$path) {
     }
 }
 
-function CreateUploadUri([string]$endpoint) {
-    $config = GetConfig
-
-    if ($config.ContainsKey("uploadserviceUri") -and $config["uploadserviceUri"]) {
-        Write-DebugLog "Using the upload servie to handle a file"
-
-        return CombineUrlSegments $config["uploadserviceUri"], $endpoint
-    }
-    else {
-        Write-DebugLog "Using the REST api to handle a file"
-
-        return CreateUrl -endpoint $endpoint -kind "DAM"
-    }
-}
 function UploadMetadataFile([string]$path, [hashtable]$metadataFileTable){
 
     Write-InfoLog "Start upload metadata file '$path'"
@@ -433,8 +389,8 @@ Content-Type: {3}
 
     $boundary = CreateBoundary
 
-    $headers = CreateHeaders -kind "DAM" -additionalHeaders @{ "Content-Type" = "multipart/form-data; boundary=$boundary" }
-    
+    $headers = CreateHeaders -kind "Upload" -additionalHeaders @{ "Content-Type" = "multipart/form-data; boundary=$boundary" }
+
     $body = $template -f $boundary, $name, $filename, $mimeType, $data
 
     return InvokeRestMethod -uri $uri -method "POST" -headers $headers -body $body
@@ -446,7 +402,7 @@ function ParseUploadResult([Parameter(ValueFromPipeline = $true)]$response) {
     }
 
     $uri = $response.uri
-    $headers = CreateHeaders -kind "DAM"
+    $headers = CreateHeaders -kind "Upload"
 
     do {
         $response = InvokeRestMethod -uri $uri -headers $headers
@@ -480,11 +436,11 @@ function GetMimeType([string]$path) {
     Add-Type -AssemblyName System.Web
 
     $mimeType = [System.Web.MimeMapping]::GetMimeMapping($path)
-            
+
     if ($mimeType) {
         return $mimeType
     }
-    
+
     return "application/octet-stream"
 }
 
@@ -492,7 +448,7 @@ function CreateClassificationTree([string]$rootId, [string[]]$classificationName
     if (!$classificationNames -or ($classificationNames.Count -eq 0)) {
         return $rootId
     }
-    
+
     Write-DebugLog "Retrieving the classification id using root $rootId and path $($classificationNames -join "/")"
 
     $uri = CreateUrl -endpoint "/classifications" -kind "DAM"
@@ -517,7 +473,7 @@ function CreateClassificationTree([string]$rootId, [string[]]$classificationName
             } | ConvertTo-Json -Compress)
 
         $id = $response.id
-        
+
         Write-InfoLog "Created classification with name $classificationName"
     }
 
@@ -547,7 +503,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Aprimo.HotfolderService {
-    public static class Win32 
+    public static class Win32
     {
         public static long FormatByteSize(long fileSize, StringBuilder buffer)
         {
@@ -558,7 +514,7 @@ namespace Aprimo.HotfolderService {
         private static extern long StrFormatByteSize(long fileSize, System.Text.StringBuilder buffer, int bufferSize);
     }
 
-    public enum LogLevel 
+    public enum LogLevel
     {
         None = 0,
         Error = 1,
@@ -583,43 +539,31 @@ function Initialize-Session {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     }
 
-    if ($config.ContainsKey("clientId") -and $config["clientId"]) {
-        Write-DebugLog "Using the MO api to create a session"
-
-        # A client-id was specified, this indicates MO authentication is to be used
-        $headers = CreateHeaders -kind "MO"
-        $uri = CreateUrl -endpoint "/oauth/create-native-token" -kind "MO"
-
-        $response = InvokeRestMethod -uri $uri -headers $headers -method "POST" -refreshToken $false
-        $script:token = @{
-            accessToken  = $response.accessToken
-            refreshToken = $response.refreshToken
-            bearerToken  = $true
-        }
-
-        $sb = New-Object System.Text.StringBuilder
-        [void] $sb.AppendLine("Tokens:")
-        [void] $sb.AppendLine("  Access token: $($script:token.accessToken)")
-        [void] $sb.Append("  Refresh token: $($script:token.refreshToken)")
-        
-        Write-DebugLog ($sb.ToString())
+    if (-not $config.ContainsKey("clientId") -or -not $config.clientId) {
+        throw "The 'clientId' setting is missing or empty in the configuration file."
+        return
     }
-    else {
-        Write-DebugLog "Using the DAM api to create a session"
 
-        $headers = CreateHeaders -kind "DAM" -additionalHeaders @{ "Authorization" = ($config.authorization); "Registration" = ($config.registration) }
-        $uri = CreateUrl -endpoint "/auth" -kind "DAM"
-
-        $response = InvokeRestMethod -uri $uri -headers $headers -refreshToken $false
-
-        $script:token = @{
-            accessToken  = $response.token
-            refreshToken = ""
-            bearerToken  = $false
-        }
-
-        Write-DebugLog "Access token: $($script:token.accessToken)"
+    if (-not $config.ContainsKey("clientSecret") -or -not $config.clientSecret) {
+        throw "The 'clientSecret' setting is missing or empty in the configuration file."
+        return
     }
+
+    Write-DebugLog "Creating a session"
+
+    # A client-id was specified, this indicates MO authentication is to be used
+    $headers = CreateHeaders -kind "Auth"
+    $uri = CreateUrl -endpoint "/connect/token" -kind "Auth"
+
+    $response = InvokeRestMethod -uri $uri -headers $headers -method "POST" -refreshToken $false -Body "client_id=$($config.clientId)&client_secret=$($config.clientSecret)&grant_type=client_credentials"
+    $script:token = $response.access_token
+
+    $sb = New-Object System.Text.StringBuilder
+    [void] $sb.AppendLine("Access token: $($script:token)")
+
+    Write-DebugLog ($sb.ToString())
+
+    return $script:token
 }
 
 function Get-FileList {
@@ -638,7 +582,7 @@ function Get-FileList {
 
     [array]$directories = Get-DirectoryList -Path $Path
 
-    
+
 
     foreach ($directory in $directories) {
 
@@ -655,18 +599,18 @@ function Get-FileList {
         # First iterate for the metadata and normal file speration
         # and to get a full metadata list
         foreach ($file in $files) {
-            
+
             if($file.Extension -eq ".csv") {
                 $singleMatch = $false
                 foreach ($inner in $files) {
                     if($inner.Extension -ne ".csv" -and $inner.BaseName -eq $file.BaseName){
-                        
+
                         $singleMetadataFiles.Add($file.BaseName, $file.FullName);
                         $singleMatch = $true
                         break
                     }
                 }
-                
+
                 if($singleMatch -eq $false){
                     [void]$genericMetadataFiles.Add($file.FullName)
                 }
@@ -676,14 +620,14 @@ function Get-FileList {
         $failedFolder = $genericMetadataFiles.Count -gt 1
         $filePath = ""
         $subFoldersStr = ""
-        # When multiple generic metadata files cannot determine what to use. 
+        # When multiple generic metadata files cannot determine what to use.
         # skip folder instead. Problem is that once uploaded you cannot undo so correct this situation first
         if ($failedFolder -eq $true){
 
             Write-WarningLog "Multiple metadata files found in folder '$($directory.FullName)'. Skipped uploading files in this folder."
             $filePath = $file.FullName -replace [regex]::escape($Path), ""
             $subFoldersStr = (Split-Path -Path $filePath)
-            
+
             $genericMetafilesList = $genericMetadataFiles -join ', '
             Write-WarningLog "Conflicting metadata files: $genericMetafilesList"
 
@@ -692,7 +636,7 @@ function Get-FileList {
 
                     $filePath = $file.FullName -replace [regex]::escape($Path), ""
                     $subFoldersStr = (Split-Path -Path $filePath)
-                    
+
                     AddToFailedFolder -Path $file.FullName -FailedFilesFolder $FailedFilesFolder -SubFolders $subFoldersStr
                 }
             }
@@ -700,25 +644,25 @@ function Get-FileList {
             # Skip to next directory
             continue
         }
-        
+
         # Fill the fileTable with files and their possible metadata files
         foreach ($file in $files | Where-Object {$_.Extension -ne ".csv"} ) {
-            
+
             $metaFile = ""
-            
+
             if($singleMetadataFiles.ContainsKey($file.BaseName)){
-                
+
                 $metaFile = $singleMetadataFiles.Get_Item([string]$file.BaseName)
             }
             elseif ($genericMetadataFiles.Count -eq 1){
                 $metaFile = [string]$genericMetadataFiles[0];
             }
-            
+
             $fileTable.Add($file.FullName, $metaFile)
         }
 
     }
-    
+
     return $fileTable
 
 }
@@ -787,24 +731,24 @@ function New-Record {
             $createdItem = "record"
             $classificationId = CreateClassificationTree -rootId $Classification -classificationNames $SubClassifications
         }
-    
+
         $filename = Split-Path -Path $Path -Leaf
-    
+
         $url = CreateUrl "/records" -Kind "DAM"
         $headers = CreateHeaders -kind "DAM"
         $body = (CreateBody -classificationId $classificationId -uploadToken $uploadToken -MetaDataFileToken $MetaDataFileToken -MetaDataSchemaName $MetaDataSchemaName -filename $filename | ConvertTo-Json -Depth 99 -Compress)
-    
+
         Write-Progress -Id 2 -ParentId 1 -Activity "Creating the record"
-    
+
         $response = InvokeRestMethod -uri $url -method "POST" -headers $headers -body $body
-    
+
         Write-InfoLog "Created $createdItem with file ($filename)"
         Write-DebugLog "Created $createdItem with id $($response.id)"
     }
-    catch {        
+    catch {
         # error during create new record, clean up the uploaded file
         Write-DebugLog "Deleting the uploaded file: $filename"
-        $response = DeleteUploadedFile -uri (CreateUploadUri -endpoint "/uploads/$uploadToken")
+        $response = DeleteUploadedFile -uri (CreateUrl -endpoint "/$uploadToken" -kind "Upload")
         throw
     }
 }
@@ -817,7 +761,7 @@ function DeleteUploadedFile {
         $uri
     )
 
-    $headers = CreateHeaders -kind "DAM"
+    $headers = CreateHeaders -kind "Upload"
     return  InvokeRestMethod -uri $uri -method "DELETE" -headers $headers
 }
 
@@ -901,7 +845,7 @@ function AddToFailedFolder {
         [Parameter(Mandatory = $true)]
         [string]
         $Path,
-        
+
         [Parameter(Mandatory = $false)]
         [string]
         $FailedFilesFolder,
@@ -918,7 +862,7 @@ function AddToFailedFolder {
             if($SubFolders){
                 $dest = (Join-Path $FailedFilesFolder $SubFolders)
             }
-            
+
             if (-not (Test-Path $dest)) {
                 New-Item -Path $dest -ItemType Directory | Out-Null
             }
@@ -947,7 +891,7 @@ function Start-Log {
     if (-not (Test-Path $logDir)) {
         New-Item -Path $logDir -ItemType Directory | Out-Null
     }
-    
+
     $path = Join-Path $logDir "$($now.ToString("yyyy-MM-dd")).txt"
     if (-not (Test-Path $path)) {
         New-Item -Path $path -ItemType File | Out-Null
@@ -1040,4 +984,4 @@ function Stop-Log {
 
 #endregion
 
-Export-ModuleMember -Function Add-Types, Initialize-Session, Get-FileList, Get-DirectoryList, Get-DirectoryContents, New-Record, CreateUploadUri, UploadFile, UploadMetadataFile, DeleteUploadedFile, Remove-ProcessedFile, AddToFailedFolder, Start-Log, Write-Log, Stop-Log, Write-ErrorLog, Write-WarningLog, Write-InfoLog, Write-DebugLog
+Export-ModuleMember -Function Add-Types, Initialize-Session, Get-FileList, Get-DirectoryList, Get-DirectoryContents, New-Record, UploadFile, UploadMetadataFile, DeleteUploadedFile, Remove-ProcessedFile, AddToFailedFolder, Start-Log, Write-Log, Stop-Log, Write-ErrorLog, Write-WarningLog, Write-InfoLog, Write-DebugLog
