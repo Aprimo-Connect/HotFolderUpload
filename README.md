@@ -22,8 +22,9 @@ Get the script from [GitHub](https://github.com/Aprimo-Connect/HotFolderUpload).
 ## Configuration
 Add the following details to the `app.config` file for the script to work:
 - **Aprimo DAM URL**
+- **Upload Service URL**
 - **Client ID**
-- **Authentication token**
+- **Client Secret**
 
 Example `app.config` file:
 ```xml
@@ -32,8 +33,8 @@ Example `app.config` file:
   <appSettings>
     <add key="endpointUri" value="https://yourcompany.dam.aprimo.com" />
     <add key="uploadserviceUri" value="https://yourcompany.aprimo.com" />
-    <add key="authorization" value="[Auth Token]" />
     <add key="clientId" value="[Client ID]" />
+    <add key="clientSecret" value="[Client Secret]" />
     <add key="logDir" value="C:\scriptlog" />
     <add key="logLevel" value="Info" />
   </appSettings>
