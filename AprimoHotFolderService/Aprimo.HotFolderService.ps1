@@ -182,7 +182,51 @@ process {
         }
         catch {
             $errorMsg = $_.Exception.Message
-            Write-ErrorLog "An error occurred while creating a new record for $($entry.Key)`n`n $errorMsg"
+            Write-ErrorLog "An error occurred while creating a new record for $($entry.Key)`n`n $errorMsg -- ADDITIONAL INFORMATION IF AVAILABLE WILL BE SHOWN BELOW:"
+			
+				# Expanded The Exception response to return the details for the error if the exception is from a call from the Aprimo API - this will return the status code and the response.
+			 $ex = $_.Exception
+			$resp = $ex.Response
+
+			if ($resp) {
+				# Basic response info
+				$statusCode = $null
+				try { $statusCode = [int]$resp.StatusCode } catch {}
+				$statusDesc = $null
+				try { $statusDesc = $resp.StatusDescription } catch {}
+				$uri        = $null
+				try { $uri = $resp.ResponseUri.AbsoluteUri } catch {}
+
+				# Headers (as a hashtable for logging)
+				$headers = @{}
+				try {
+					foreach ($key in $resp.Headers.AllKeys) {
+						$headers[$key] = $resp.Headers[$key]
+					}
+				} catch {}
+
+				# Body (read once)
+				$body = $null
+				try {
+					$stream = $resp.GetResponseStream()
+					if ($stream) {
+						$reader = New-Object System.IO.StreamReader($stream)
+						$body = $reader.ReadToEnd()
+						$reader.Dispose()
+						$stream.Dispose()
+					}
+				} catch {
+					$body = "<unable to read response body: $($_.Exception.Message)>"
+				}
+
+				# Log it (redact if needed)
+				Write-Log "HTTP error. Status=$statusCode $statusDesc Uri=$uri ContentType=$($resp.ContentType) Length=$($resp.ContentLength)" -Level Error
+				Write-Log "HTTP headers: $(ConvertTo-Json $headers -Compress)" -Level Debug
+				Write-Log "HTTP body: $body" -Level Debug
+			}
+			else {
+				Write-Log "HTTP error, but no response was returned. $($ex.Message)" -Level Error
+			}
 
             AddToFailedFolder -Path $entry.Key -FailedFilesFolder $FailedFilesFolder -SubFolders $subFoldersStr
 
@@ -216,4 +260,5 @@ process {
 
 end {
     Stop-Log
+
 }
